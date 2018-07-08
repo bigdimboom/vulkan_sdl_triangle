@@ -5,8 +5,10 @@
 #include <SDL2/SDL_vulkan.h>
 
 #include <vulkan/vulkan.hpp>
+#include <glm/glm.hpp>
 
 #include <vector>
+#include <limits>
 
 SDL_Window* gWindow = nullptr;
 const std::string gWindow_title = "SDL_VULKAN_TIANGLE";
@@ -16,12 +18,17 @@ const int gWindowHeight = 800;
 static char const* AppName = "sdl_vulkan_triangle";
 static char const* EngineName = "vulkan.hpp";
 
+const std::vector<const char*> validationLayers = {
+	"VK_LAYER_LUNARG_standard_validation"
+};
+
 vk::UniqueInstance gVKInstance;
 vk::SurfaceKHR gSurface;
 vk::PhysicalDevice gSelectedPhysicalDevice = nullptr;
 size_t gGraphicsQueueFamilyIndex = -1;
 size_t gPresentQueueFamilyIndex = -1;
 vk::UniqueDevice gDevice;
+vk::UniqueSwapchainKHR gSwapChain;
 
 bool init();
 void update();
@@ -128,6 +135,8 @@ bool init()
 	instanceCreateInfo.setPApplicationInfo(&appInfo);
 	instanceCreateInfo.setEnabledExtensionCount((uint32_t)vulkan_extensions.size());
 	instanceCreateInfo.setPpEnabledExtensionNames(&vulkan_extensions[0]);
+	instanceCreateInfo.setEnabledLayerCount(1);
+	instanceCreateInfo.setPpEnabledLayerNames(validationLayers.data());
 	gVKInstance = vk::createInstanceUnique(instanceCreateInfo);
 
 	// TODO:
@@ -197,18 +206,148 @@ bool init()
 		return false;
 	}
 
-	// TODO:
+
 	// create logic device
-	float queuePriority = 0.0f;
+	float queuePriority = 1.0f;
 	std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos =
 	{
 		vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(), static_cast<uint32_t>(gGraphicsQueueFamilyIndex), 1, &queuePriority),
 		vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(), static_cast<uint32_t>(gPresentQueueFamilyIndex), 1, &queuePriority)
 	};
-	gDevice = gSelectedPhysicalDevice.createDeviceUnique(vk::DeviceCreateInfo(vk::DeviceCreateFlags(), queueCreateInfos.size(), queueCreateInfos.data()));
+
+	gDevice = gSelectedPhysicalDevice.createDeviceUnique(vk::DeviceCreateInfo(vk::DeviceCreateFlags(), (uint32_t)queueCreateInfos.size(), queueCreateInfos.data(), 
+														 1, validationLayers.data()));
 
 	//auto graphicsQueue = gDevice->getQueue(gGraphicsQueueFamilyIndex, 0);
 	//auto presentQueue = gDevice->getQueue(gPresentQueueFamilyIndex, 0);
+
+
+	// TODO:
+	// crate swap chain
+	struct SwapChainSupportDetails
+	{
+		vk::SurfaceCapabilitiesKHR capabilities;
+		std::vector<vk::SurfaceFormatKHR> formats;
+		std::vector<vk::PresentModeKHR> presentModes;
+	};
+
+	auto querySwapChainSupport = [](vk::PhysicalDevice physicalDevice, vk::SurfaceKHR surface) -> SwapChainSupportDetails
+	{
+		SwapChainSupportDetails swapChainSupport;
+
+		swapChainSupport.capabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
+		swapChainSupport.formats = physicalDevice.getSurfaceFormatsKHR(surface);
+		swapChainSupport.presentModes = physicalDevice.getSurfacePresentModesKHR(surface);
+
+		return swapChainSupport;
+	};
+
+	auto chooseSwapSurfaceFormat = [](const std::vector<vk::SurfaceFormatKHR>& availableFormats) -> vk::SurfaceFormatKHR
+	{
+		if (availableFormats.size() == 1 && availableFormats[0].format == vk::Format::eUndefined)
+		{
+			vk::SurfaceFormatKHR surfaceformat;
+			surfaceformat.format = vk::Format::eB8G8R8A8Unorm;
+			surfaceformat.colorSpace = vk::ColorSpaceKHR::eSrgbNonlinear;
+			return surfaceformat;
+		}
+
+		for (const auto& sFormat : availableFormats)
+		{
+			if (sFormat.format == vk::Format::eB8G8R8A8Unorm && sFormat.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear)
+			{
+				return sFormat;
+			}
+		}
+
+		assert(availableFormats.size() > 0 && "should not reach here");
+		return availableFormats[0];
+	};
+
+	auto chooseSwapPresentMode = [](const std::vector<vk::PresentModeKHR>& availablePresentModes) ->vk::PresentModeKHR
+	{
+		vk::PresentModeKHR bestMode = vk::PresentModeKHR::eFifo;
+
+		for (const auto& mode : availablePresentModes)
+		{
+			switch (mode)
+			{
+			case vk::PresentModeKHR::eMailbox:
+				return mode;
+			case vk::PresentModeKHR::eImmediate:
+				bestMode = mode;
+				break;
+			default:
+				break;
+			}
+		}
+		return bestMode;
+	};
+
+	auto chooseSwapExtent = [](const vk::SurfaceCapabilitiesKHR capabilities) ->vk::Extent2D
+	{
+		if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+		{
+			return capabilities.currentExtent;
+		}
+
+		vk::Extent2D actualExtent;
+		actualExtent.setWidth(gWindowWidth);
+		actualExtent.setHeight(gWindowHeight);
+		actualExtent.width = std::max(capabilities.minImageExtent.width, std::min(capabilities.maxImageExtent.width, actualExtent.width));
+		actualExtent.height = std::max(capabilities.minImageExtent.height, std::min(capabilities.maxImageExtent.height, actualExtent.height));
+		return actualExtent;
+	};
+
+
+	auto swapChainSupport = querySwapChainSupport(gSelectedPhysicalDevice,surface);
+
+	auto surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+	auto presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+	auto extent = chooseSwapExtent(swapChainSupport.capabilities);
+
+	// we'll try to have one more than that to properly implement triple buffering.
+	uint32_t imageCount = glm::clamp(swapChainSupport.capabilities.minImageCount + 1, 
+									 swapChainSupport.capabilities.minImageCount, 
+									 swapChainSupport.capabilities.maxImageCount);
+
+	vk::SwapchainCreateInfoKHR swapChainCreateInfo(
+		vk::SwapchainCreateFlagsKHR(),
+		gSurface,
+		imageCount,
+		surfaceFormat.format,
+		surfaceFormat.colorSpace,
+		extent,
+		1,
+		vk::ImageUsageFlagBits::eColorAttachment,
+		vk::SharingMode::eExclusive
+	);
+
+	uint32_t queueFamilyIndices[] = { (uint32_t)gGraphicsQueueFamilyIndex, (uint32_t)gPresentQueueFamilyIndex };
+
+	if (gGraphicsQueueFamilyIndex != gPresentQueueFamilyIndex) 
+	{
+		swapChainCreateInfo.setImageSharingMode(vk::SharingMode::eConcurrent);
+		swapChainCreateInfo.setQueueFamilyIndexCount(2);
+		swapChainCreateInfo.setPQueueFamilyIndices(&queueFamilyIndices[0]);
+	}
+	else
+	{
+		swapChainCreateInfo.setImageSharingMode(vk::SharingMode::eExclusive);
+		swapChainCreateInfo.setQueueFamilyIndexCount(1);
+		swapChainCreateInfo.setPQueueFamilyIndices(&queueFamilyIndices[0]);
+	}
+
+	swapChainCreateInfo.setPreTransform(swapChainSupport.capabilities.currentTransform);
+	swapChainCreateInfo.setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque);
+	swapChainCreateInfo.setPresentMode(presentMode);
+	swapChainCreateInfo.setClipped(VK_TRUE);
+	swapChainCreateInfo.setOldSwapchain(nullptr);
+
+	gSwapChain = gDevice->createSwapchainKHRUnique(swapChainCreateInfo);
+
+	// get images in swap chain
+	
 
 
 
@@ -225,6 +364,7 @@ void render()
 
 void cleanup()
 {
+	//gSwapChain.release();
 	gVKInstance->destroySurfaceKHR(gSurface);
 	SDL_DestroyWindow(gWindow);
 	SDL_Vulkan_UnloadLibrary();
