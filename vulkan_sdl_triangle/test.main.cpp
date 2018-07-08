@@ -16,114 +16,46 @@ const int gWindowHeight = 800;
 static char const* AppName = "sdl_vulkan_triangle";
 static char const* EngineName = "vulkan.hpp";
 
+vk::UniqueInstance gVKInstance;
+vk::SurfaceKHR gSurface;
+vk::PhysicalDevice gSelectedPhysicalDevice = nullptr;
+size_t gGraphicsQueueFamilyIndex = -1;
+size_t gPresentQueueFamilyIndex = -1;
+vk::UniqueDevice gDevice;
+
+bool init();
+void update();
+void render();
+void cleanup();
 
 int main(int argc, const char** argv)
 {
 	try
 	{
-
-		if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
-			SDL_Log("Unable to initialize SDL: %s", SDL_GetError());
+		if (!init())
+		{
 			return EXIT_FAILURE;
 		}
 
-		if (SDL_Vulkan_LoadLibrary(NULL)) {
-			SDL_Log("Unable to initialize vulkan lib: %s", SDL_GetError());
-			return EXIT_FAILURE;
-		}
-
-		gWindow = SDL_CreateWindow(gWindow_title.c_str(),
-								   SDL_WINDOWPOS_CENTERED,
-								   SDL_WINDOWPOS_CENTERED,
-								   gWindowWidth, gWindowHeight,
-								   SDL_WINDOW_VULKAN |
-								   SDL_WINDOW_SHOWN);
-
-		if (!gWindow)
+		// main loop
+		bool running = true;
+		SDL_Event ev;
+		while (running)
 		{
-			SDL_Log("Unable to initialize vulkan window: %s", SDL_GetError());
-			return EXIT_FAILURE;
-		}
-
-		uint32_t nExt = 0;
-		std::vector<const char*> vulkan_extensions;
-		if (!SDL_Vulkan_GetInstanceExtensions(gWindow, &nExt, NULL))
-		{
-			SDL_Log("Unable to get vulkan extension names: %s", SDL_GetError());
-			return EXIT_FAILURE;
-		}
-		vulkan_extensions.resize(nExt);
-		if (!SDL_Vulkan_GetInstanceExtensions(gWindow, &nExt, &vulkan_extensions[0]))
-		{
-			SDL_Log("Unable to get vulkan extension names: %s", SDL_GetError());
-			return EXIT_FAILURE;
-		}
-
-		// extension names
-		static const char *const additionalExtensions[] =
-		{
-			VK_EXT_DEBUG_REPORT_EXTENSION_NAME // example additional extension
-		};
-		size_t additionalExtensionsCount = sizeof(additionalExtensions) / sizeof(additionalExtensions[0]);
-		vulkan_extensions.resize(vulkan_extensions.size() + additionalExtensionsCount);
-		for (size_t i = 0; i < additionalExtensionsCount; i++)
-		{
-			vulkan_extensions[nExt + i] = additionalExtensions[i];
-		}
-
-		// init vulkan instance
-		vk::ApplicationInfo appInfo(AppName, 1, EngineName, 1, VK_API_VERSION_1_1);
-		vk::InstanceCreateInfo instanceCreateInfo;
-		instanceCreateInfo.setPApplicationInfo(&appInfo);
-		instanceCreateInfo.setEnabledExtensionCount((uint32_t)vulkan_extensions.size());
-		instanceCreateInfo.setPpEnabledExtensionNames(&vulkan_extensions[0]);
-		vk::UniqueInstance vkInstance = vk::createInstanceUnique(instanceCreateInfo);
-
-		// enumerate the physicalDevices and select one
-		std::vector<vk::PhysicalDevice> physicalDevices = vkInstance->enumeratePhysicalDevices();
-		assert(!physicalDevices.empty());
-		vk::PhysicalDevice selected = nullptr;
-		size_t graphicsQueueFamilyIndex = -1;
-		for (const auto& dev : physicalDevices)
-		{
-			auto queueFamilies = dev.getQueueFamilyProperties();
-			int count = 0;
-			for (const auto& queueFamily : queueFamilies) 
+			while (SDL_PollEvent(&ev))
 			{
-				if (queueFamily.queueCount > 0 && 
-				    (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) &&
-					(queueFamily.queueFlags & vk::QueueFlagBits::eCompute))
+				if (ev.type == SDL_QUIT)
 				{
-					selected = dev;
-					graphicsQueueFamilyIndex = count;
-					break;
+					running = false;
 				}
-				++count;
 			}
 
-			if (selected)
-			{
-				break;
-			}
-		}
-
-		if (!selected) {
-			throw std::runtime_error("failed to find a suitable GPU!");
+			update();
+			render();
 		}
 
 
-
-
-
-
-
-
-
-
-		SDL_DestroyWindow(gWindow);
-		SDL_Vulkan_UnloadLibrary();
-		SDL_Quit();
-		gWindow = nullptr;
+		cleanup();
 	}
 	catch (vk::SystemError err)
 	{
@@ -137,4 +69,162 @@ int main(int argc, const char** argv)
 	}
 
 	return EXIT_SUCCESS;
+}
+
+bool init()
+{
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
+		SDL_Log("Unable to initialize SDL: %s", SDL_GetError());
+		return false;
+	}
+
+	if (SDL_Vulkan_LoadLibrary(NULL)) {
+		SDL_Log("Unable to initialize vulkan lib: %s", SDL_GetError());
+		return false;
+	}
+
+	gWindow = SDL_CreateWindow(gWindow_title.c_str(),
+							   SDL_WINDOWPOS_CENTERED,
+							   SDL_WINDOWPOS_CENTERED,
+							   gWindowWidth, gWindowHeight,
+							   SDL_WINDOW_VULKAN |
+							   SDL_WINDOW_SHOWN);
+
+	if (!gWindow)
+	{
+		SDL_Log("Unable to initialize vulkan window: %s", SDL_GetError());
+		return false;
+	}
+
+	uint32_t nExt = 0;
+	std::vector<const char*> vulkan_extensions;
+	if (!SDL_Vulkan_GetInstanceExtensions(gWindow, &nExt, NULL))
+	{
+		SDL_Log("Unable to get vulkan extension names: %s", SDL_GetError());
+		return false;
+	}
+	vulkan_extensions.resize(nExt);
+	if (!SDL_Vulkan_GetInstanceExtensions(gWindow, &nExt, &vulkan_extensions[0]))
+	{
+		SDL_Log("Unable to get vulkan extension names: %s", SDL_GetError());
+		return false;
+	}
+
+	// extension names
+	static const char *const additionalExtensions[] =
+	{
+		VK_EXT_DEBUG_REPORT_EXTENSION_NAME // example additional extension
+	};
+	size_t additionalExtensionsCount = sizeof(additionalExtensions) / sizeof(additionalExtensions[0]);
+	vulkan_extensions.resize(vulkan_extensions.size() + additionalExtensionsCount);
+	for (size_t i = 0; i < additionalExtensionsCount; i++)
+	{
+		vulkan_extensions[nExt + i] = additionalExtensions[i];
+	}
+
+	// init vulkan instance
+	vk::ApplicationInfo appInfo(AppName, 1, EngineName, 1, VK_API_VERSION_1_1);
+	vk::InstanceCreateInfo instanceCreateInfo;
+	instanceCreateInfo.setPApplicationInfo(&appInfo);
+	instanceCreateInfo.setEnabledExtensionCount((uint32_t)vulkan_extensions.size());
+	instanceCreateInfo.setPpEnabledExtensionNames(&vulkan_extensions[0]);
+	gVKInstance = vk::createInstanceUnique(instanceCreateInfo);
+
+	// TODO:
+	//// create debug callback
+	//vk::DebugReportCallbackCreateInfoEXT debug_report_create_info;
+	//debug_report_create_info.flags =
+	//	vk::DebugReportFlagBitsEXT::eDebug |
+	//	vk::DebugReportFlagBitsEXT::eError |
+	//	vk::DebugReportFlagBitsEXT::eInformation |
+	//	vk::DebugReportFlagBitsEXT::ePerformanceWarning |
+	//	vk::DebugReportFlagBitsEXT::eWarning;
+	//debug_report_create_info.pfnCallback = nullptr;
+	//auto debugCBHandle = vkInstance->createDebugReportCallbackEXTUnique(debug_report_create_info);
+
+	// Create Surface
+	SDL_vulkanSurface surface = nullptr;
+	if (!SDL_Vulkan_CreateSurface(gWindow, gVKInstance.get(), &surface))
+	{
+		throw std::runtime_error("failed to create window surface!");
+	}
+	gSurface = surface;
+
+	// enumerate the physicalDevices and select one and its queue family index
+	std::vector<vk::PhysicalDevice> physicalDevices = gVKInstance->enumeratePhysicalDevices();
+	assert(!physicalDevices.empty());
+	for (const auto& dev : physicalDevices)
+	{
+		if (gGraphicsQueueFamilyIndex != -1 &&
+			gPresentQueueFamilyIndex != -1)
+		{
+			break;
+		}
+
+		auto queueFamilies = dev.getQueueFamilyProperties();
+		int count = 0;
+		for (const auto& queueFamily : queueFamilies)
+		{
+			// query if graphics queue 
+			if (queueFamily.queueCount > 0 &&
+				(queueFamily.queueFlags & vk::QueueFlagBits::eGraphics)
+				/*&&(queueFamily.queueFlags & vk::QueueFlagBits::eCompute)*/)
+			{
+				gSelectedPhysicalDevice = dev;
+				gGraphicsQueueFamilyIndex = count;
+			}
+
+			// query if support present queue
+			if (queueFamily.queueCount > 0 && dev.getSurfaceSupportKHR(count, gSurface))
+			{
+				gPresentQueueFamilyIndex = count;
+			}
+
+			++count;
+
+			if (gGraphicsQueueFamilyIndex != -1 &&
+				gPresentQueueFamilyIndex != -1)
+			{
+				break;
+			}
+		}
+	}
+
+	if (!gSelectedPhysicalDevice) {
+		SDL_Log("failed to find a suitable GPU!");
+		return false;
+	}
+
+	// TODO:
+	// create logic device
+	float queuePriority = 0.0f;
+	std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos = 
+	{
+		vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(), static_cast<uint32_t>(gGraphicsQueueFamilyIndex), 1, &queuePriority),
+		vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(), static_cast<uint32_t>(gPresentQueueFamilyIndex), 1, &queuePriority)
+	};
+	gDevice = gSelectedPhysicalDevice.createDeviceUnique(vk::DeviceCreateInfo(vk::DeviceCreateFlags(), queueCreateInfos.size(), queueCreateInfos.data()));
+
+
+
+
+
+	return true;
+}
+
+void update()
+{
+}
+
+void render()
+{
+}
+
+void cleanup()
+{
+	gVKInstance->destroySurfaceKHR(gSurface);
+	SDL_DestroyWindow(gWindow);
+	SDL_Vulkan_UnloadLibrary();
+	SDL_Quit();
+	gWindow = nullptr;
 }
