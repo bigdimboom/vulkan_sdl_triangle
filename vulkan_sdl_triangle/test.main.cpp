@@ -155,11 +155,13 @@ bool init()
 	assert(!physicalDevices.empty());
 	for (const auto& dev : physicalDevices)
 	{
-		if (gGraphicsQueueFamilyIndex != -1 &&
-			gPresentQueueFamilyIndex != -1)
+		if (gSelectedPhysicalDevice)
 		{
 			break;
 		}
+
+		gGraphicsQueueFamilyIndex = -1;
+		gPresentQueueFamilyIndex = -1;
 
 		auto queueFamilies = dev.getQueueFamilyProperties();
 		int count = 0;
@@ -170,7 +172,6 @@ bool init()
 				(queueFamily.queueFlags & vk::QueueFlagBits::eGraphics)
 				/*&&(queueFamily.queueFlags & vk::QueueFlagBits::eCompute)*/)
 			{
-				gSelectedPhysicalDevice = dev;
 				gGraphicsQueueFamilyIndex = count;
 			}
 
@@ -180,13 +181,14 @@ bool init()
 				gPresentQueueFamilyIndex = count;
 			}
 
-			++count;
-
 			if (gGraphicsQueueFamilyIndex != -1 &&
 				gPresentQueueFamilyIndex != -1)
 			{
+				gSelectedPhysicalDevice = dev;
 				break;
 			}
+
+			++count;
 		}
 	}
 
@@ -198,14 +200,15 @@ bool init()
 	// TODO:
 	// create logic device
 	float queuePriority = 0.0f;
-	std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos = 
+	std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos =
 	{
 		vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(), static_cast<uint32_t>(gGraphicsQueueFamilyIndex), 1, &queuePriority),
 		vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(), static_cast<uint32_t>(gPresentQueueFamilyIndex), 1, &queuePriority)
 	};
 	gDevice = gSelectedPhysicalDevice.createDeviceUnique(vk::DeviceCreateInfo(vk::DeviceCreateFlags(), queueCreateInfos.size(), queueCreateInfos.data()));
 
-
+	//auto graphicsQueue = gDevice->getQueue(gGraphicsQueueFamilyIndex, 0);
+	//auto presentQueue = gDevice->getQueue(gPresentQueueFamilyIndex, 0);
 
 
 
