@@ -38,9 +38,12 @@ vk::Queue gGraphicsQueue;
 vk::Queue gPresentQueue;
 
 vk::SwapchainKHR gSwapChain;
-std::vector<vk::Image> gSwapChainImages;
 vk::Format gSwapChainImageFormat;
 vk::Extent2D gSwapChainExtent;
+std::vector<vk::Image> gSwapChainImages;
+
+std::vector<vk::UniqueImageView> gSwapChainImageViews;
+
 
 bool init();
 void update();
@@ -79,6 +82,11 @@ int main(int argc, const char** argv)
 	catch (vk::SystemError err)
 	{
 		std::cout << "vk::SystemError: " << err.what() << std::endl;
+		exit(-1);
+	}
+	catch (std::runtime_error err)
+	{
+		std::cout << "std::runtime_error: " << err.what() << std::endl;
 		exit(-1);
 	}
 	catch (...)
@@ -236,7 +244,6 @@ Next:
 	gPresentQueue = gDevice->getQueue((uint32_t)gPresentQueueFamilyIndex, 0);
 
 
-	// TODO:
 	// crate swap chain
 	struct SwapChainSupportDetails
 	{
@@ -364,6 +371,29 @@ Next:
 	gSwapChainImages = gDevice->getSwapchainImagesKHR(gSwapChain);
 	gSwapChainImageFormat = surfaceFormat.format;
 	gSwapChainExtent = extent;
+
+	// TODO: using vk::ImageView
+	gSwapChainImageViews.resize(gSwapChainImages.size());
+	for (int i = 0; i < gSwapChainImageViews.size(); ++i)
+	{
+		vk::ImageSubresourceRange subresourceRange(
+			vk::ImageAspectFlagBits::eColor,
+			0,
+			1,
+			0,
+			1
+		);
+
+		vk::ImageViewCreateInfo createInfo(vk::ImageViewCreateFlags(),
+										   gSwapChainImages[i],
+										   vk::ImageViewType::e2D,
+										   gSwapChainImageFormat,
+										   vk::ComponentMapping(),
+										   subresourceRange);
+
+		gSwapChainImageViews[i] = gDevice->createImageViewUnique(createInfo);
+	}
+
 
 	return true;
 }
