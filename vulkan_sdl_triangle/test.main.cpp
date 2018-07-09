@@ -7,6 +7,7 @@
 #include <vulkan/vulkan.hpp>
 #include <glm/glm.hpp>
 
+#include <set>
 #include <vector>
 #include <limits>
 
@@ -22,13 +23,24 @@ const std::vector<const char*> validationLayers = {
 	"VK_LAYER_LUNARG_standard_validation"
 };
 
+const std::vector<const char*> deviceExtensions = {
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
+
 vk::UniqueInstance gVKInstance;
 vk::SurfaceKHR gSurface;
+
+vk::UniqueDevice gDevice;
 vk::PhysicalDevice gSelectedPhysicalDevice = nullptr;
 size_t gGraphicsQueueFamilyIndex = -1;
 size_t gPresentQueueFamilyIndex = -1;
-vk::UniqueDevice gDevice;
-vk::UniqueSwapchainKHR gSwapChain;
+vk::Queue gGraphicsQueue;
+vk::Queue gPresentQueue;
+
+vk::SwapchainKHR gSwapChain;
+std::vector<vk::Image> gSwapChainImages;
+vk::Format gSwapChainImageFormat;
+vk::Extent2D gSwapChainExtent;
 
 bool init();
 void update();
@@ -135,7 +147,7 @@ bool init()
 	instanceCreateInfo.setPApplicationInfo(&appInfo);
 	instanceCreateInfo.setEnabledExtensionCount((uint32_t)vulkan_extensions.size());
 	instanceCreateInfo.setPpEnabledExtensionNames(&vulkan_extensions[0]);
-	instanceCreateInfo.setEnabledLayerCount(1);
+	instanceCreateInfo.setEnabledLayerCount((uint32_t)validationLayers.size());
 	instanceCreateInfo.setPpEnabledLayerNames(validationLayers.data());
 	gVKInstance = vk::createInstanceUnique(instanceCreateInfo);
 
@@ -164,11 +176,6 @@ bool init()
 	assert(!physicalDevices.empty());
 	for (const auto& dev : physicalDevices)
 	{
-		if (gSelectedPhysicalDevice)
-		{
-			break;
-		}
-
 		gGraphicsQueueFamilyIndex = -1;
 		gPresentQueueFamilyIndex = -1;
 
@@ -178,8 +185,8 @@ bool init()
 		{
 			// query if graphics queue 
 			if (queueFamily.queueCount > 0 &&
-				(queueFamily.queueFlags & vk::QueueFlagBits::eGraphics)
-				/*&&(queueFamily.queueFlags & vk::QueueFlagBits::eCompute)*/)
+				(queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) /*&&
+				(queueFamily.queueFlags & vk::QueueFlagBits::eCompute)*/)
 			{
 				gGraphicsQueueFamilyIndex = count;
 			}
@@ -194,12 +201,14 @@ bool init()
 				gPresentQueueFamilyIndex != -1)
 			{
 				gSelectedPhysicalDevice = dev;
-				break;
+				goto Next;
 			}
 
 			++count;
 		}
 	}
+
+Next:
 
 	if (!gSelectedPhysicalDevice) {
 		SDL_Log("failed to find a suitable GPU!");
@@ -209,17 +218,22 @@ bool init()
 
 	// create logic device
 	float queuePriority = 1.0f;
-	std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos =
+	std::set<size_t> uniqueQueueFamilies = { gGraphicsQueueFamilyIndex, gPresentQueueFamilyIndex };
+	std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
+
+	for (const auto& family_queue_index : uniqueQueueFamilies)
 	{
-		vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(), static_cast<uint32_t>(gGraphicsQueueFamilyIndex), 1, &queuePriority),
-		vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(), static_cast<uint32_t>(gPresentQueueFamilyIndex), 1, &queuePriority)
-	};
+		queueCreateInfos.push_back(vk::DeviceQueueCreateInfo(vk::DeviceQueueCreateFlags(), static_cast<uint32_t>(gGraphicsQueueFamilyIndex), 1, &queuePriority));
+	}
 
-	gDevice = gSelectedPhysicalDevice.createDeviceUnique(vk::DeviceCreateInfo(vk::DeviceCreateFlags(), (uint32_t)queueCreateInfos.size(), queueCreateInfos.data(), 
-														 1, validationLayers.data()));
+	vk::DeviceCreateInfo device_create_info(vk::DeviceCreateFlags(), (uint32_t)queueCreateInfos.size(),
+											queueCreateInfos.data(), (uint32_t)validationLayers.size(), validationLayers.data(),
+											(uint32_t)deviceExtensions.size(), deviceExtensions.data());
 
-	//auto graphicsQueue = gDevice->getQueue(gGraphicsQueueFamilyIndex, 0);
-	//auto presentQueue = gDevice->getQueue(gPresentQueueFamilyIndex, 0);
+	gDevice = gSelectedPhysicalDevice.createDeviceUnique(device_create_info);
+
+	gGraphicsQueue = gDevice->getQueue((uint32_t)gGraphicsQueueFamilyIndex, 0);
+	gPresentQueue = gDevice->getQueue((uint32_t)gPresentQueueFamilyIndex, 0);
 
 
 	// TODO:
@@ -300,15 +314,15 @@ bool init()
 	};
 
 
-	auto swapChainSupport = querySwapChainSupport(gSelectedPhysicalDevice,surface);
+	auto swapChainSupport = querySwapChainSupport(gSelectedPhysicalDevice, surface);
 
 	auto surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
 	auto presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
 	auto extent = chooseSwapExtent(swapChainSupport.capabilities);
 
 	// we'll try to have one more than that to properly implement triple buffering.
-	uint32_t imageCount = glm::clamp(swapChainSupport.capabilities.minImageCount + 1, 
-									 swapChainSupport.capabilities.minImageCount, 
+	uint32_t imageCount = glm::clamp(swapChainSupport.capabilities.minImageCount + 1,
+									 swapChainSupport.capabilities.minImageCount,
 									 swapChainSupport.capabilities.maxImageCount);
 
 	vk::SwapchainCreateInfoKHR swapChainCreateInfo(
@@ -325,7 +339,7 @@ bool init()
 
 	uint32_t queueFamilyIndices[] = { (uint32_t)gGraphicsQueueFamilyIndex, (uint32_t)gPresentQueueFamilyIndex };
 
-	if (gGraphicsQueueFamilyIndex != gPresentQueueFamilyIndex) 
+	if (gGraphicsQueueFamilyIndex != gPresentQueueFamilyIndex)
 	{
 		swapChainCreateInfo.setImageSharingMode(vk::SharingMode::eConcurrent);
 		swapChainCreateInfo.setQueueFamilyIndexCount(2);
@@ -344,12 +358,12 @@ bool init()
 	swapChainCreateInfo.setClipped(VK_TRUE);
 	swapChainCreateInfo.setOldSwapchain(nullptr);
 
-	gSwapChain = gDevice->createSwapchainKHRUnique(swapChainCreateInfo);
+	gSwapChain = gDevice->createSwapchainKHR(swapChainCreateInfo);
 
 	// get images in swap chain
-	
-
-
+	gSwapChainImages = gDevice->getSwapchainImagesKHR(gSwapChain);
+	gSwapChainImageFormat = surfaceFormat.format;
+	gSwapChainExtent = extent;
 
 	return true;
 }
@@ -364,7 +378,7 @@ void render()
 
 void cleanup()
 {
-	//gSwapChain.release();
+	gDevice->destroySwapchainKHR(gSwapChain);
 	gVKInstance->destroySurfaceKHR(gSurface);
 	SDL_DestroyWindow(gWindow);
 	SDL_Vulkan_UnloadLibrary();
