@@ -10,6 +10,9 @@
 #include <set>
 #include <vector>
 #include <limits>
+#include <string>
+#include <fstream>
+#include <sstream>
 
 SDL_Window* gWindow = nullptr;
 const std::string gWindow_title = "SDL_VULKAN_TIANGLE";
@@ -49,6 +52,9 @@ bool init();
 void update();
 void render();
 void cleanup();
+
+std::vector<char> readFile(const std::string& filename);
+
 
 int main(int argc, const char** argv)
 {
@@ -100,12 +106,14 @@ int main(int argc, const char** argv)
 
 bool init()
 {
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0)
+	{
 		SDL_Log("Unable to initialize SDL: %s", SDL_GetError());
 		return false;
 	}
 
-	if (SDL_Vulkan_LoadLibrary(NULL)) {
+	if (SDL_Vulkan_LoadLibrary(NULL))
+	{
 		SDL_Log("Unable to initialize vulkan lib: %s", SDL_GetError());
 		return false;
 	}
@@ -149,6 +157,7 @@ bool init()
 		vulkan_extensions[nExt + i] = additionalExtensions[i];
 	}
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////
 	// init vulkan instance
 	vk::ApplicationInfo appInfo(AppName, 1, EngineName, 1, VK_API_VERSION_1_1);
 	vk::InstanceCreateInfo instanceCreateInfo;
@@ -171,6 +180,7 @@ bool init()
 	//debug_report_create_info.pfnCallback = nullptr;
 	//auto debugCBHandle = vkInstance->createDebugReportCallbackEXTUnique(debug_report_create_info);
 
+	///////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Create Surface
 	SDL_vulkanSurface surface = nullptr;
 	if (!SDL_Vulkan_CreateSurface(gWindow, gVKInstance.get(), &surface))
@@ -218,12 +228,13 @@ bool init()
 
 Next:
 
-	if (!gSelectedPhysicalDevice) {
+	if (!gSelectedPhysicalDevice)
+	{
 		SDL_Log("failed to find a suitable GPU!");
 		return false;
 	}
 
-
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// create logic device
 	float queuePriority = 1.0f;
 	std::set<size_t> uniqueQueueFamilies = { gGraphicsQueueFamilyIndex, gPresentQueueFamilyIndex };
@@ -244,6 +255,7 @@ Next:
 	gPresentQueue = gDevice->getQueue((uint32_t)gPresentQueueFamilyIndex, 0);
 
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// crate swap chain
 	struct SwapChainSupportDetails
 	{
@@ -372,7 +384,9 @@ Next:
 	gSwapChainImageFormat = surfaceFormat.format;
 	gSwapChainExtent = extent;
 
-	// using vk::ImageView
+
+	///////////////////////////////////////////////////////////////////////////////////////////////////////
+	// createImageViews
 	gSwapChainImageViews.resize(gSwapChainImages.size());
 	for (int i = 0; i < gSwapChainImageViews.size(); ++i)
 	{
@@ -394,8 +408,110 @@ Next:
 		gSwapChainImageViews[i] = gDevice->createImageViewUnique(createInfo);
 	}
 
-	// TODO: create graphics pipeline
+	/////////////////////////////////////////////////////////////////////////////////////////
+	// TODO: 
+	// createRenderPass
+	vk::AttachmentDescription colorAttachmentDesc;
+	colorAttachmentDesc.setFormat(gSwapChainImageFormat);
+	colorAttachmentDesc.setSamples(vk::SampleCountFlagBits::e1);
+	colorAttachmentDesc.setLoadOp(vk::AttachmentLoadOp::eClear);
+	colorAttachmentDesc.setStoreOp(vk::AttachmentStoreOp::eStore);
 
+
+
+
+	////////////////////////////////////////////////////////////////////////////////////////////
+	// TODO: create graphics pipeline
+	// shaders
+	auto createShaderModule = [](const std::vector<char>& code) -> vk::UniqueShaderModule
+	{
+		vk::ShaderModuleCreateInfo shader_create_info;
+		shader_create_info.setCodeSize(code.size());
+		shader_create_info.setPCode(reinterpret_cast<const uint32_t*>(code.data()));
+		return gDevice->createShaderModuleUnique(shader_create_info);
+	};
+
+	enum ShaderType
+	{
+		VERTEX_SHADER,
+		FRAGMENT_SHADER
+	};
+
+	auto vertShaderCode = readFile("triangle.vert");
+	auto fragShaderCode = readFile("triangle.frag");
+	auto vertShaderModule = createShaderModule(vertShaderCode);
+	auto fragShaderModule = createShaderModule(fragShaderCode);
+	vk::PipelineShaderStageCreateInfo vertShaderStageInfo(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eVertex, vertShaderModule.get(), "main");
+	vk::PipelineShaderStageCreateInfo fragShaderStageInfo(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eFragment, fragShaderModule.get(), "main");
+	vk::PipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+
+	// the format of the vertex data that will be passed to the vertex shader
+	vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
+	vertexInputInfo.setVertexAttributeDescriptionCount(0);
+	vertexInputInfo.setVertexBindingDescriptionCount(0);
+	vertexInputInfo.setPVertexAttributeDescriptions(nullptr);
+	vertexInputInfo.setPVertexBindingDescriptions(nullptr);
+
+	// defines how geometry will be drawn, and if primitive restart should be enabled
+	vk::PipelineInputAssemblyStateCreateInfo inputAssembly;
+	inputAssembly.setPrimitiveRestartEnable(VK_FALSE);
+	inputAssembly.setTopology(vk::PrimitiveTopology::eTriangleList);
+
+	// viewport and scissor
+	vk::Viewport viewport(0.0f, 0.0f, (float)gSwapChainExtent.width, (float)gSwapChainExtent.height, 0.0f, 1.0f);
+	vk::Rect2D scissor(vk::Offset2D(0, 0), gSwapChainExtent);
+
+	vk::PipelineViewportStateCreateInfo viewportState;
+	viewportState.setViewportCount(1);
+	viewportState.setScissorCount(1);
+	viewportState.setPViewports(&viewport);
+	viewportState.setPScissors(&scissor);
+
+	// Rasterization
+	vk::PipelineRasterizationStateCreateInfo rasterizerState(vk::PipelineRasterizationStateCreateFlags(),
+															 VK_FALSE, VK_FALSE,
+															 vk::PolygonMode::eFill,
+															 vk::CullModeFlagBits::eBack, vk::FrontFace::eCounterClockwise,
+															 VK_FALSE, 0.0f,
+															 VK_FALSE, 0.0f,
+															 1.0f);
+
+	// multiple sample anti-aliasing
+	vk::PipelineMultisampleStateCreateInfo multisampling(vk::PipelineMultisampleStateCreateFlags(),
+														 vk::SampleCountFlagBits::e1,
+														 VK_FALSE,
+														 1.0f,
+														 nullptr,
+														 VK_FALSE,
+														 VK_FALSE);
+
+	// depth and stencil
+	vk::PipelineDepthStencilStateCreateInfo depth_n_stencil_state;
+
+
+	// color blending
+	vk::PipelineColorBlendAttachmentState colorBlendAttachment(VK_FALSE);
+	colorBlendAttachment.setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
+	colorBlendAttachment.setSrcColorBlendFactor(vk::BlendFactor::eOne);
+	colorBlendAttachment.setDstColorBlendFactor(vk::BlendFactor::eZero);
+	colorBlendAttachment.setColorBlendOp(vk::BlendOp::eAdd);
+	colorBlendAttachment.setSrcAlphaBlendFactor(vk::BlendFactor::eOne);
+	colorBlendAttachment.setDstAlphaBlendFactor(vk::BlendFactor::eZero);
+	colorBlendAttachment.setAlphaBlendOp(vk::BlendOp::eAdd);
+
+	vk::PipelineColorBlendStateCreateInfo colorBlendingState(vk::PipelineColorBlendStateCreateFlags(),
+															 VK_FALSE, vk::LogicOp::eCopy,
+															 1, &colorBlendAttachment,
+															 { 0.0f, 0.0f, 0.0f, 0.0f });
+
+	// dynamic states
+	vk::DynamicState dynamicStates[] = { vk::DynamicState::eViewport, vk::DynamicState::eLineWidth };
+	vk::PipelineDynamicStateCreateInfo dynamicState(vk::PipelineDynamicStateCreateFlags(),
+													2, dynamicStates);
+
+	// put all pipeline conponents together : VkPipelineLayout 
+	vk::PipelineLayoutCreateInfo pipelineLayoutInfo(vk::PipelineLayoutCreateFlags(), 0, nullptr, 0, nullptr);
+	auto pipelineLayout = gDevice->createPipelineLayoutUnique(pipelineLayoutInfo);
 
 
 	return true;
@@ -418,3 +534,24 @@ void cleanup()
 	SDL_Quit();
 	gWindow = nullptr;
 }
+
+std::vector<char> readFile(const std::string & filename)
+{
+	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open())
+	{
+		throw std::runtime_error("failed to open file!");
+	}
+
+	size_t fileSize = (size_t)file.tellg();
+	std::vector<char> buffer(fileSize);
+
+	file.seekg(0);
+	file.read(buffer.data(), fileSize);
+
+	file.close();
+
+	return buffer;
+}
+
