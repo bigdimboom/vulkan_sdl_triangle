@@ -126,8 +126,8 @@
     <ClCompile Include="test.main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="triangle_fs.glsl" />
-    <None Include="triangle_vs.glsl" />
+    <None Include="triangle.frag.glsl" />
+    <None Include="triangle.vert.glsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
