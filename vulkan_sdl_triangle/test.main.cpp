@@ -372,7 +372,7 @@ Next:
 	gSwapChainImageFormat = surfaceFormat.format;
 	gSwapChainExtent = extent;
 
-	// TODO: using vk::ImageView
+	// using vk::ImageView
 	gSwapChainImageViews.resize(gSwapChainImages.size());
 	for (int i = 0; i < gSwapChainImageViews.size(); ++i)
 	{
@@ -393,6 +393,9 @@ Next:
 
 		gSwapChainImageViews[i] = gDevice->createImageViewUnique(createInfo);
 	}
+
+	// TODO: create graphics pipeline
+
 
 
 	return true;
