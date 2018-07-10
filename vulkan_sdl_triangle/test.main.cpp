@@ -50,7 +50,11 @@ std::vector<vk::UniqueImageView> gSwapChainImageViews;
 vk::UniqueRenderPass gRenderPass;
 
 vk::UniquePipelineLayout gPipelineLayout;
+vk::UniquePipeline gGraphicsPipeline;
 
+std::vector<vk::UniqueFramebuffer> gSwapChainFramebuffers;
+vk::UniqueCommandPool gCommandPool;
+std::vector<vk::UniqueCommandBuffer> gCommandBuffers;
 
 bool init();
 void update();
@@ -413,7 +417,6 @@ Next:
 	}
 
 	/////////////////////////////////////////////////////////////////////////////////////////
-	// TODO: 
 	// createRenderPass
 	// set framebuffer properties
 	vk::AttachmentDescription colorAttachmentDesc;
@@ -443,8 +446,7 @@ Next:
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////
-	// TODO: create graphics pipeline
-	// shaders
+	// create graphics pipeline/shaders
 	auto createShaderModule = [](const std::vector<char>& code) -> vk::UniqueShaderModule
 	{
 		vk::ShaderModuleCreateInfo shader_create_info;
@@ -499,16 +501,16 @@ Next:
 															 1.0f);
 
 	// multiple sample anti-aliasing
-	vk::PipelineMultisampleStateCreateInfo multisampling(vk::PipelineMultisampleStateCreateFlags(),
-														 vk::SampleCountFlagBits::e1,
-														 VK_FALSE,
-														 1.0f,
-														 nullptr,
-														 VK_FALSE,
-														 VK_FALSE);
+	vk::PipelineMultisampleStateCreateInfo multisampleState(vk::PipelineMultisampleStateCreateFlags(),
+															vk::SampleCountFlagBits::e1,
+															VK_FALSE,
+															1.0f,
+															nullptr,
+															VK_FALSE,
+															VK_FALSE);
 
 	// depth and stencil
-	vk::PipelineDepthStencilStateCreateInfo depth_n_stencil_state;
+	//vk::PipelineDepthStencilStateCreateInfo depth_n_stencil_state;
 
 
 	// color blending
@@ -535,6 +537,83 @@ Next:
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo(vk::PipelineLayoutCreateFlags(), 0, nullptr, 0, nullptr);
 	gPipelineLayout = gDevice->createPipelineLayoutUnique(pipelineLayoutInfo);
 
+	// creating pipeline
+	vk::GraphicsPipelineCreateInfo pipelineInfo(
+		vk::PipelineCreateFlags(),
+		2, shaderStages,
+		&vertexInputInfo,
+		&inputAssembly,
+		nullptr,
+		&viewportState,
+		&rasterizerState,
+		&multisampleState,
+		nullptr,
+		&colorBlendingState
+	);
+
+	pipelineInfo.setPDynamicState(&dynamicState);
+	pipelineInfo.setLayout(gPipelineLayout.get());
+	pipelineInfo.setRenderPass(gRenderPass.get());
+	pipelineInfo.setSubpass(0);
+
+	// the following are only considered if the VK_PIPELINE_CREATE_DERIVATIVE_BIT flag
+	//pipelineInfo.setFlags(vk::PipelineCreateFlagBits::eAllowDerivatives);
+	//pipelineInfo.setBasePipelineHandle(nullptr);
+	//pipelineInfo.setBasePipelineIndex(-1);
+
+	gGraphicsPipeline = gDevice->createGraphicsPipelineUnique(nullptr, pipelineInfo);
+
+	// TODO:
+	// frame buffers
+	for (size_t i = 0; i < gSwapChainImageViews.size(); ++i)
+	{
+		vk::FramebufferCreateInfo framebufferInfo(
+			vk::FramebufferCreateFlags(),
+			gRenderPass.get(),
+			1, &gSwapChainImageViews[i].get(),
+			gSwapChainExtent.width, gSwapChainExtent.height,
+			1
+		);
+		gSwapChainFramebuffers.push_back(gDevice->createFramebufferUnique(framebufferInfo));
+	}
+
+	// create command pool
+	vk::CommandPoolCreateInfo poolInfo(
+		vk::CommandPoolCreateFlags(),
+		(uint32_t)gGraphicsQueueFamilyIndex
+	);
+	gCommandPool = gDevice->createCommandPoolUnique(poolInfo);
+
+	// command buffer allocations
+	vk::CommandBufferAllocateInfo cmdBufferAllocInfo(
+		gCommandPool.get(),
+		vk::CommandBufferLevel::ePrimary,
+		(uint32_t)gSwapChainFramebuffers.size()
+	);
+	gCommandBuffers = gDevice->allocateCommandBuffersUnique(cmdBufferAllocInfo);
+
+	// record command
+	for (size_t i = 0; i < gCommandBuffers.size(); i++)
+	{
+		gCommandBuffers[i]->begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eSimultaneousUse));
+
+		vk::ClearValue clearColor;
+		clearColor.color.setFloat32({ 0.0f, 0.0f, 0.0f, 1.0f });
+
+		vk::RenderPassBeginInfo renderPassBeginInfo(
+			gRenderPass.get(),
+			gSwapChainFramebuffers[i].get(),
+			vk::Rect2D(vk::Offset2D(0,0), gSwapChainExtent),
+			1, &clearColor
+		);
+
+		gCommandBuffers[i]->beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
+		gCommandBuffers[i]->bindPipeline(vk::PipelineBindPoint::eGraphics, gGraphicsPipeline.get());
+		gCommandBuffers[i]->draw(3, 1, 0, 0);
+		gCommandBuffers[i]->endRenderPass();
+
+		gCommandBuffers[i]->end();
+	}
 
 	return true;
 }
@@ -545,6 +624,10 @@ void update()
 
 void render()
 {
+
+
+
+
 }
 
 void cleanup()
