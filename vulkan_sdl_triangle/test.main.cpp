@@ -47,6 +47,10 @@ std::vector<vk::Image> gSwapChainImages;
 
 std::vector<vk::UniqueImageView> gSwapChainImageViews;
 
+vk::UniqueRenderPass gRenderPass;
+
+vk::UniquePipelineLayout gPipelineLayout;
+
 
 bool init();
 void update();
@@ -411,13 +415,31 @@ Next:
 	/////////////////////////////////////////////////////////////////////////////////////////
 	// TODO: 
 	// createRenderPass
+	// set framebuffer properties
 	vk::AttachmentDescription colorAttachmentDesc;
 	colorAttachmentDesc.setFormat(gSwapChainImageFormat);
 	colorAttachmentDesc.setSamples(vk::SampleCountFlagBits::e1);
 	colorAttachmentDesc.setLoadOp(vk::AttachmentLoadOp::eClear);
 	colorAttachmentDesc.setStoreOp(vk::AttachmentStoreOp::eStore);
+	colorAttachmentDesc.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare);
+	colorAttachmentDesc.setStencilStoreOp(vk::AttachmentStoreOp::eDontCare);
+	colorAttachmentDesc.setInitialLayout(vk::ImageLayout::eUndefined);
+	colorAttachmentDesc.setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
 
+	vk::AttachmentReference colorAttachmentRef(0, vk::ImageLayout::eColorAttachmentOptimal);
 
+	vk::SubpassDescription subpass(vk::SubpassDescriptionFlags(),
+								   vk::PipelineBindPoint::eGraphics,
+								   0, nullptr,
+								   1, &colorAttachmentRef);
+
+	vk::RenderPassCreateInfo renderPassInfo(
+		vk::RenderPassCreateFlags(),
+		1, &colorAttachmentDesc,
+		1, &subpass
+	);
+
+	gRenderPass = gDevice->createRenderPassUnique(renderPassInfo);
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////
@@ -511,7 +533,7 @@ Next:
 
 	// put all pipeline conponents together : VkPipelineLayout 
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo(vk::PipelineLayoutCreateFlags(), 0, nullptr, 0, nullptr);
-	auto pipelineLayout = gDevice->createPipelineLayoutUnique(pipelineLayoutInfo);
+	gPipelineLayout = gDevice->createPipelineLayoutUnique(pipelineLayoutInfo);
 
 
 	return true;
