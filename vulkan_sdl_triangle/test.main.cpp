@@ -58,6 +58,8 @@ std::vector<vk::UniqueCommandBuffer> gCommandBuffers;
 
 std::vector<vk::UniqueSemaphore> gImageAvailableSemaphores;
 std::vector<vk::UniqueSemaphore> gRenderFinishedSemaphores;
+std::vector<vk::UniqueFence> gInFlightFences;
+
 
 bool init();
 void update();
@@ -498,7 +500,7 @@ Next:
 	vk::PipelineRasterizationStateCreateInfo rasterizerState(vk::PipelineRasterizationStateCreateFlags(),
 															 VK_FALSE, VK_FALSE,
 															 vk::PolygonMode::eFill,
-															 vk::CullModeFlagBits::eBack, vk::FrontFace::eCounterClockwise,
+															 vk::CullModeFlagBits::eBack, vk::FrontFace::eClockwise,
 															 VK_FALSE, 0.0f,
 															 VK_FALSE, 0.0f,
 															 1.0f);
@@ -621,8 +623,13 @@ Next:
 	// create semaphores
 	// one semaphore to signal that an image has been acquired and is ready for rendering, 
 	// and another one to signal that rendering has finished and presentation can happen
-	//gImageAvailableSemaphore = gDevice->createSemaphoreUnique(vk::SemaphoreCreateInfo());
-	//gRenderFinishedSemaphore = gDevice->createSemaphoreUnique(vk::SemaphoreCreateInfo());
+
+	for (int i = 0; i < gCommandBuffers.size(); ++i)
+	{
+		gImageAvailableSemaphores.push_back(gDevice->createSemaphoreUnique(vk::SemaphoreCreateInfo()));
+		gRenderFinishedSemaphores.push_back(gDevice->createSemaphoreUnique(vk::SemaphoreCreateInfo()));
+		gInFlightFences.push_back(gDevice->createFenceUnique(vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)));
+	}
 
 	return true;
 }
@@ -634,11 +641,37 @@ void update()
 void render()
 {
 	//index refers to the VkImage in our swapChainImages array. We're going to use that index to pick the right command buffer.
-	//uint32_t image_index;
-	//gDevice->acquireNextImageKHR(gSwapChain, std::numeric_limits<uint64_t>::max(), gImageAvailableSemaphore.get(), nullptr, image_index);
+	static uint32_t currentFrame = 0;
+	static uint32_t imageIndex = -1;
 
+	gDevice->waitForFences(1, &gInFlightFences[currentFrame].get(), VK_TRUE, std::numeric_limits<uint64_t>::max());
+	gDevice->resetFences(1, &gInFlightFences[currentFrame].get());
 
+	imageIndex = gDevice->acquireNextImageKHR(gSwapChain, std::numeric_limits<uint64_t>::max(), gImageAvailableSemaphores[currentFrame].get(), nullptr).value;
 
+	vk::PipelineStageFlags flags[] = { vk::PipelineStageFlagBits::eColorAttachmentOutput };
+
+	vk::SubmitInfo submitInfo(
+		1, &gImageAvailableSemaphores[currentFrame].get(),
+		flags,
+		1, &gCommandBuffers[imageIndex].get(),
+		1, &gRenderFinishedSemaphores[imageIndex].get()
+	);
+
+	gGraphicsQueue.submit(1, &submitInfo, gInFlightFences[currentFrame].get());
+
+	vk::PresentInfoKHR presentInfo(
+		1, &gRenderFinishedSemaphores[currentFrame].get(),
+		1, &gSwapChain,
+		&imageIndex
+	);
+
+	gGraphicsQueue.presentKHR(presentInfo);
+
+	//std::cout << "image index " << imageIndex << "\n";
+	//std::cout << "current frame " << currentFrame << "\n";
+
+	currentFrame = (currentFrame + 1) % gCommandBuffers.size();
 
 }
 
