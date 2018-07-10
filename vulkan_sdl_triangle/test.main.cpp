@@ -56,6 +56,9 @@ std::vector<vk::UniqueFramebuffer> gSwapChainFramebuffers;
 vk::UniqueCommandPool gCommandPool;
 std::vector<vk::UniqueCommandBuffer> gCommandBuffers;
 
+std::vector<vk::UniqueSemaphore> gImageAvailableSemaphores;
+std::vector<vk::UniqueSemaphore> gRenderFinishedSemaphores;
+
 bool init();
 void update();
 void render();
@@ -528,10 +531,10 @@ Next:
 															 1, &colorBlendAttachment,
 															 { 0.0f, 0.0f, 0.0f, 0.0f });
 
-	// dynamic states
-	vk::DynamicState dynamicStates[] = { vk::DynamicState::eViewport, vk::DynamicState::eLineWidth };
-	vk::PipelineDynamicStateCreateInfo dynamicState(vk::PipelineDynamicStateCreateFlags(),
-													2, dynamicStates);
+	//// dynamic states
+	//vk::DynamicState dynamicStates[] = { vk::DynamicState::eViewport, vk::DynamicState::eLineWidth };
+	//vk::PipelineDynamicStateCreateInfo dynamicState(vk::PipelineDynamicStateCreateFlags(),
+	//												2, dynamicStates);
 
 	// put all pipeline conponents together : VkPipelineLayout 
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo(vk::PipelineLayoutCreateFlags(), 0, nullptr, 0, nullptr);
@@ -551,7 +554,7 @@ Next:
 		&colorBlendingState
 	);
 
-	pipelineInfo.setPDynamicState(&dynamicState);
+	//pipelineInfo.setPDynamicState(&dynamicState);
 	pipelineInfo.setLayout(gPipelineLayout.get());
 	pipelineInfo.setRenderPass(gRenderPass.get());
 	pipelineInfo.setSubpass(0);
@@ -615,6 +618,12 @@ Next:
 		gCommandBuffers[i]->end();
 	}
 
+	// create semaphores
+	// one semaphore to signal that an image has been acquired and is ready for rendering, 
+	// and another one to signal that rendering has finished and presentation can happen
+	//gImageAvailableSemaphore = gDevice->createSemaphoreUnique(vk::SemaphoreCreateInfo());
+	//gRenderFinishedSemaphore = gDevice->createSemaphoreUnique(vk::SemaphoreCreateInfo());
+
 	return true;
 }
 
@@ -624,6 +633,9 @@ void update()
 
 void render()
 {
+	//index refers to the VkImage in our swapChainImages array. We're going to use that index to pick the right command buffer.
+	//uint32_t image_index;
+	//gDevice->acquireNextImageKHR(gSwapChain, std::numeric_limits<uint64_t>::max(), gImageAvailableSemaphore.get(), nullptr, image_index);
 
 
 
