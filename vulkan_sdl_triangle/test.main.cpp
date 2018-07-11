@@ -608,7 +608,7 @@ Next:
 		vk::RenderPassBeginInfo renderPassBeginInfo(
 			gRenderPass.get(),
 			gSwapChainFramebuffers[i].get(),
-			vk::Rect2D(vk::Offset2D(0,0), gSwapChainExtent),
+			vk::Rect2D(vk::Offset2D(0, 0), gSwapChainExtent),
 			1, &clearColor
 		);
 
@@ -677,6 +677,8 @@ void render()
 
 void cleanup()
 {
+	gDevice->waitIdle();
+
 	gDevice->destroySwapchainKHR(gSwapChain);
 	gVKInstance->destroySurfaceKHR(gSurface);
 	SDL_DestroyWindow(gWindow);
