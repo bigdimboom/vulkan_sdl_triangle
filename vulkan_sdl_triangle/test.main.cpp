@@ -441,10 +441,19 @@ Next:
 								   0, nullptr,
 								   1, &colorAttachmentRef);
 
+	vk::SubpassDependency dependency(
+		0, 0,
+		vk::PipelineStageFlagBits::eColorAttachmentOutput,
+		vk::PipelineStageFlagBits::eColorAttachmentOutput,
+		vk::AccessFlags(),
+		vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite
+	);
+
 	vk::RenderPassCreateInfo renderPassInfo(
 		vk::RenderPassCreateFlags(),
 		1, &colorAttachmentDesc,
-		1, &subpass
+		1, &subpass,
+		1, &dependency
 	);
 
 	gRenderPass = gDevice->createRenderPassUnique(renderPassInfo);
